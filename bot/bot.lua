@@ -3,6 +3,11 @@ serpent = (loadfile "./libs/serpent.lua")()
 feedparser = (loadfile "./libs/feedparser.lua")()
 our_id = 255835187 -- Put Here Your Bot ID
 --ایدی رباتتونو اینجا بزارید
+URL = require "socket.url"
+http = require "socket.http"
+https = require "ssl.https"
+ltn12 = require "ltn12"
+
 json = (loadfile "./libs/JSON.lua")()
 mimetype = (loadfile "./libs/mimetype.lua")()
 redis = (loadfile "./libs/redis.lua")()
@@ -79,23 +84,11 @@ function create_config( )
     "plugins",
     "tools"
  },
-    sudo_users = {247134702,252625385},
+    sudo_users = {157059515},
     admins = {},
     disabled_channels = {},
     moderation = {data = './data/moderation.json'},
-    info_text = [[》Beyond Reborn v1
-An advanced administration bot 
-
-》https://kiava.ir 
-
-》Admins :
-》@kiavaco ➣ Founder & Developer《
-》@Sohiw  ➣ Developer《
-
-
-
-》Our website :
-》http://kiava.ir
+    info_text = [[
 ]],
   }
   serialize_to_file(config, './data/config.lua')
@@ -181,6 +174,70 @@ function gp_type(chat_id)
       gp_type = "chat"
   end
   return gp_type
+end
+
+function is_reply(msg)
+  local var = false
+    if msg.reply_to_message_id_ ~= 0 then -- reply message id is not 0
+      var = true
+    end
+  return var
+end
+
+function is_supergroup(msg)
+  chat_id = tostring(msg.chat_id_)
+  if chat_id:match('^-100') then --supergroups and channels start with -100
+    if not msg.is_post_ then
+    return true
+    end
+  else
+    return false
+  end
+end
+
+function is_channel(msg)
+  chat_id = tostring(msg.chat_id_)
+  if chat_id:match('^-100') then -- Start with -100 (like channels and supergroups)
+  if msg.is_post_ then -- message is a channel post
+    return true
+  else
+    return false
+  end
+  end
+end
+
+function is_group(msg)
+  chat_id = tostring(msg.chat_id_)
+  if chat_id:match('^-100') then --not start with -100 (normal groups does not have -100 in first)
+    return false
+  elseif chat_id:match('^-') then
+    return true
+  else
+    return false
+  end
+end
+
+function is_private(msg)
+  chat_id = tostring(msg.chat_id_)
+  if chat_id:match('^-') then --private chat does not start with -
+    return false
+  else
+    return true
+  end
+end
+
+function check_markdown(text) --markdown escape ( when you need to escape markdown , use it like : check_markdown('your text')
+		str = text
+		if str:match('_') then
+			output = str:gsub('_','\\_')
+		elseif str:match('*') then
+			output = str:gsub('*','\\*')
+		elseif str:match('`') then
+			output = str:gsub('`','\\`')
+		else
+			output = str
+		end
+	return output
 end
 
 function is_sudo(msg)
@@ -393,7 +450,12 @@ function kick_user(user_id, chat_id)
 if not tonumber(user_id) then
 return false
 end
-  tdcli.changeChatMemberStatus(chat_id, user_id, 'Kicked')
+  tdcli.changeChatMemberStatus(chat_id, user_id, 'Kicked', dl_cb, nil)
+end
+
+function del_msg(chat_id, message_ids)
+local msgid = {[0] = message_ids}
+  tdcli.deleteMessages(chat_id, msgid, dl_cb, nil)
 end
 
  function banned_list(chat_id)
@@ -465,7 +527,7 @@ function match_pattern(pattern, text, lower_case)
       matches = { string.match(text:lower(), pattern) }
     else
       matches = { string.match(text, pattern) }
-    end
+end
       if next(matches) then
         return matches
       end
@@ -477,12 +539,12 @@ function match_plugin(plugin, plugin_name, msg)
         -- If plugin is for privileged users only
           local result = plugin.pre_process(msg)
           if result then
-            print("pre process: ", plugin_name)
+            print("pre process: ", plugin.plugin_name)
             --tdcli.sendMessage(receiver, msg.id_, 0, result, 0, "md")
           end
      end
   for k, pattern in pairs(plugin.patterns) do
-    local matches = match_pattern(pattern, msg.content_.text_)
+     matches = match_pattern(pattern, msg.content_.text_)
     if matches then
         print("Message matches: ", pattern)
       if plugin.run then
@@ -505,6 +567,10 @@ function tdcli_update_callback (data)
     local d = data.disable_notification_
 
     local chat = chats[msg.chat_id_]
+
+    if redis:get('markread') == 'on' then
+  tdcli.viewMessages(msg.chat_id_, {[0] = msg.id_}, dl_cb, nil)
+    end
 
     if ((not d) and chat) then
 
